@@ -783,7 +783,4 @@ void editor_record_action(EditorAction action) {
     E.undo_history[E.undo_history_idx] = action;
     E.undo_history_len++;
     E.undo_history_idx++;
-
-    E.undo_history_len++;
-    E.undo_history_idx++;
 }
