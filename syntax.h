@@ -2,23 +2,23 @@
 #define SYNTAX_H
 
 enum EditorHighlight {
-    HL_NORMAL = 0,
-    HL_COMMENT,
-    HL_KEYWORD1,
-    HL_KEYWORD2,
-    HL_STRING,
-    HL_NUMBER,
-    HL_MATCH,
-    HL_PREPROC
+  HL_NORMAL = 0,
+  HL_COMMENT,
+  HL_KEYWORD1,
+  HL_KEYWORD2,
+  HL_STRING,
+  HL_NUMBER,
+  HL_MATCH,
+  HL_PREPROC
 };
 
 typedef struct {
-    char **filetype_extensions;
-    char **keywords1;
-    char **keywords2;
-    char *singleline_comment_start;
-    char *multiline_comment_start;
-    char *multiline_comment_end;
+  char **filetype_extensions;
+  char **keywords1;
+  char **keywords2;
+  char *singleline_comment_start;
+  char *multiline_comment_start;
+  char *multiline_comment_end;
 } EditorSyntax;
 
 void editor_select_syntax_highlight();
