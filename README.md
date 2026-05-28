@@ -75,9 +75,8 @@ no filename is provided, ErwinText will start with an empty buffer.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for
-details.
+MIT, see [LICENSE](LICENSE).
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+PRs welcome. Please open an issue first for major changes.
