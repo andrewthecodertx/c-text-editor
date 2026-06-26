@@ -1,4 +1,5 @@
 #ifndef UI_H
+
 #define UI_H
 
 void editor_draw_rows();
@@ -10,6 +11,7 @@ void editor_draw_clock();
 void editor_scroll();
 int get_cx_display();
 char *editor_prompt(const char *prompt_fmt, ...);
+
 #include <time.h>
 
 extern time_t status_message_time;

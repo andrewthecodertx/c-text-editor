@@ -1,4 +1,5 @@
 #ifndef UI_CONSTANTS_H
+
 #define UI_CONSTANTS_H
 
 #define TAB_STOP 4

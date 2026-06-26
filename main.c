@@ -1,12 +1,10 @@
-#include "editor_lines_array.h"
-#include "ui.h"
-
 #include "editor.h"
+#include "editor_lines_array.h"
 #include "error_handler.h"
 #include "file.h"
 #include "syntax.h"
 #include "ui.h"
-#include <stdlib.h>
+
 #include <string.h>
 
 EditorConfig *E = NULL;

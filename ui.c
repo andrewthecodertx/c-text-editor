@@ -1,8 +1,7 @@
 #include "ui.h"
 #include "editor.h"
-
-#include "error_handler.h"
 #include "ui_constants.h"
+
 #include <ncurses.h>
 #include <stdarg.h>
 #include <string.h>

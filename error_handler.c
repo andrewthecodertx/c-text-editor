@@ -1,10 +1,10 @@
 #include "error_handler.h"
 #include "editor.h" // For cleanup_editor
 #include "ui.h"     // For editor_set_status_message
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 void editor_handle_error(EditorErrorCode code, const char *fmt, ...) {
   va_list ap;

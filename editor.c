@@ -1,12 +1,10 @@
 #include "editor.h"
+#include "editor_lines_array.h"
+#include "error_handler.h"
 #include "file.h"
 #include "syntax.h"
 #include "ui.h"
 
-#include "editor_lines_array.h"
-#include "error_handler.h"
-#include <ctype.h>
-#include <errno.h>
 #include <ncurses.h>
 #include <signal.h>
 #include <stdarg.h>

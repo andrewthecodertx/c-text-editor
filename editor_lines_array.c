@@ -1,5 +1,6 @@
 #include "editor_lines_array.h"
 #include "error_handler.h"
+
 #include <stdlib.h>
 #include <string.h>
 

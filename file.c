@@ -5,7 +5,6 @@
 
 #include "editor_lines_array.h"
 #include "error_handler.h"
-#include <ctype.h>
 #include <errno.h>
 #include <ncurses.h>
 #include <stdarg.h>
