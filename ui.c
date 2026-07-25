@@ -5,6 +5,7 @@
 #include <ncurses.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 
 #include "ui_constants.h"
@@ -14,7 +15,7 @@ time_t status_message_time;
 
 void editor_draw_rows()
 {
-    EditorConfig* E = get_editor_config();
+    EditorConfig *E = get_editor_config();
     int y;
     for (y = 0; y < E->screen_rows; y++)
     {
@@ -25,14 +26,14 @@ void editor_draw_rows()
         }
         else
         {
-            EditorLine* line = &E->lines.elements[filerow];
+            EditorLine *line = &E->lines.elements[filerow];
             int current_color_pair = HL_NORMAL;
             int display_col = 0;
 
             for (size_t i = 0; i < line->len; i++)
             {
                 int char_display_width = 1;
-                if (line->text[i] == '	')
+                if (line->text[i] == '\t')
                 {
                     char_display_width = TAB_STOP - (display_col % TAB_STOP);
                 }
@@ -57,7 +58,7 @@ void editor_draw_rows()
                     }
                 }
 
-                if (line->text[i] == '	')
+                if (line->text[i] == '\t')
                 {
                     for (int k = 0; k < char_display_width; k++)
                     {
@@ -81,7 +82,7 @@ void editor_draw_rows()
 
 void editor_draw_status_bar()
 {
-    EditorConfig* E = get_editor_config();
+    EditorConfig *E = get_editor_config();
     attron(A_REVERSE);
 
     mvprintw(E->screen_rows, 0, "%.20s - %d lines %s", E->filename ? E->filename : "[No Name]",
@@ -94,7 +95,7 @@ void editor_draw_status_bar()
     attroff(A_REVERSE);
 }
 
-void editor_set_status_message(const char* fmt, ...)
+void editor_set_status_message(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -105,7 +106,7 @@ void editor_set_status_message(const char* fmt, ...)
 
 void editor_draw_message_bar()
 {
-    EditorConfig* E = get_editor_config();
+    EditorConfig *E = get_editor_config();
     move(E->screen_rows + 1, 0);
     clrtoeol();
 
@@ -120,9 +121,9 @@ void editor_draw_message_bar()
 
 void editor_draw_clock()
 {
-    EditorConfig* E = get_editor_config();
+    EditorConfig *E = get_editor_config();
     time_t rawtime;
-    struct tm* info;
+    struct tm *info;
     char time_str[6];
 
     time(&rawtime);
@@ -138,7 +139,7 @@ void editor_draw_clock()
 
 void editor_scroll()
 {
-    EditorConfig* E = get_editor_config();
+    EditorConfig *E = get_editor_config();
     if (E->cy < E->row_offset)
     {
         E->row_offset = E->cy;
@@ -168,7 +169,7 @@ void editor_scroll()
 
 void editor_refresh_screen()
 {
-    EditorConfig* E = get_editor_config();
+    EditorConfig *E = get_editor_config();
     editor_scroll();
 
     clear();
@@ -184,17 +185,17 @@ void editor_refresh_screen()
 
 int get_cx_display()
 {
-    EditorConfig* E = get_editor_config();
+    EditorConfig *E = get_editor_config();
     int display_cx = 0;
     if (E->cy >= E->lines.size)
         return 0;
 
-    EditorLine* line = &E->lines.elements[E->cy];
+    EditorLine *line = &E->lines.elements[E->cy];
     for (int i = 0; i < E->cx; i++)
     {
-        if ((size_t) i >= line->len)
+        if ((size_t)i >= line->len)
             break;
-        if (line->text[i] == '	')
+        if (line->text[i] == '\t')
         {
             display_cx += (TAB_STOP - (display_cx % TAB_STOP));
         }
@@ -206,10 +207,16 @@ int get_cx_display()
     return display_cx;
 }
 
-char* editor_prompt(const char* prompt_fmt, ...)
+char *editor_prompt(const char *prompt_fmt, ...)
 {
-    char buffer[128];
+    size_t capacity = 256;
+    char *buffer = malloc(capacity);
     int buflen = 0;
+
+    if (buffer == NULL)
+    {
+        return NULL;
+    }
     buffer[0] = '\0';
 
     while (1)
@@ -222,13 +229,16 @@ char* editor_prompt(const char* prompt_fmt, ...)
         {
             if (buflen > 0)
             {
-                return strdup(buffer);
+                /* Caller frees; return the growable buffer directly. */
+                return buffer;
             }
+            free(buffer);
             editor_set_status_message("");
             return NULL;
         }
         else if (c == CTRL('c') || c == CTRL('q') || c == 27)
         {
+            free(buffer);
             editor_set_status_message("");
             return NULL;
         }
@@ -242,19 +252,29 @@ char* editor_prompt(const char* prompt_fmt, ...)
         }
         else if (c >= 32 && c <= 126)
         {
-            if ((size_t) buflen < sizeof(buffer) - 1)
+            if ((size_t)buflen + 1 >= capacity)
             {
-                buffer[buflen++] = c;
-                buffer[buflen] = '\0';
+                size_t new_capacity = capacity * 2;
+                char *grown = realloc(buffer, new_capacity);
+                if (grown == NULL)
+                {
+                    free(buffer);
+                    editor_set_status_message("");
+                    return NULL;
+                }
+                buffer = grown;
+                capacity = new_capacity;
             }
+            buffer[buflen++] = (char)c;
+            buffer[buflen] = '\0';
         }
     }
 }
 
 void handle_winch(int sig)
 {
-    EditorConfig* E = get_editor_config();
-    (void) sig;
+    EditorConfig *E = get_editor_config();
+    (void)sig;
     endwin();
     refresh();
     getmaxyx(stdscr, E->screen_rows, E->screen_cols);
