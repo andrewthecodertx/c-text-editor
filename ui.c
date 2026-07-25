@@ -5,6 +5,7 @@
 #include <ncurses.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 
 #include "ui_constants.h"
@@ -176,8 +177,13 @@ int get_cx_display() {
 }
 
 char *editor_prompt(const char *prompt_fmt, ...) {
-  char buffer[128];
+  size_t capacity = 256;
+  char *buffer = malloc(capacity);
   int buflen = 0;
+
+  if (buffer == NULL) {
+    return NULL;
+  }
   buffer[0] = '\0';
 
   while (1) {
@@ -187,11 +193,14 @@ char *editor_prompt(const char *prompt_fmt, ...) {
     int c = getch();
     if (c == '\r' || c == '\n') {
       if (buflen > 0) {
-        return strdup(buffer);
+        /* Caller frees; return the growable buffer directly. */
+        return buffer;
       }
+      free(buffer);
       editor_set_status_message("");
       return NULL;
     } else if (c == CTRL('c') || c == CTRL('q') || c == 27) {
+      free(buffer);
       editor_set_status_message("");
       return NULL;
     } else if (c == KEY_BACKSPACE || c == 127 || c == KEY_DC) {
@@ -200,10 +209,19 @@ char *editor_prompt(const char *prompt_fmt, ...) {
         buffer[buflen] = '\0';
       }
     } else if (c >= 32 && c <= 126) {
-      if ((size_t)buflen < sizeof(buffer) - 1) {
-        buffer[buflen++] = c;
-        buffer[buflen] = '\0';
+      if ((size_t)buflen + 1 >= capacity) {
+        size_t new_capacity = capacity * 2;
+        char *grown = realloc(buffer, new_capacity);
+        if (grown == NULL) {
+          free(buffer);
+          editor_set_status_message("");
+          return NULL;
+        }
+        buffer = grown;
+        capacity = new_capacity;
       }
+      buffer[buflen++] = (char)c;
+      buffer[buflen] = '\0';
     }
   }
 }
