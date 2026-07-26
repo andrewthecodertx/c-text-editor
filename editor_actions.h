@@ -23,3 +23,8 @@ typedef struct {
 } EditorAction;
 
 #endif // EDITOR_ACTIONS_H
+
+// Action management functions
+void editor_record_action(EditorAction action);
+void editor_undo();
+void editor_action_free(EditorAction *action);

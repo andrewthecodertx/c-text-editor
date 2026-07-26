@@ -87,10 +87,7 @@ void cleanup_editor() {
   }
 
   for (int i = 0; i < E.undo_history_len; ++i) {
-    if (E.undo_history[i].type == ACTION_DELETE_LINE &&
-        E.undo_history[i].line_content) {
-      free(E.undo_history[i].line_content);
-    }
+    editor_action_free(&E.undo_history[i]); // Free any memory associated with undo actions
   }
 }
 
@@ -502,97 +499,6 @@ void editor_del_char() {
   }
 }
 
-void editor_undo() {
-  if (E.undo_history_idx <= 0) {
-    editor_set_status_message("Nothing to undo.");
-    return;
-  }
-
-  E.undo_history_idx--;
-  EditorAction last_action = E.undo_history[E.undo_history_idx];
-
-  E.recording_actions = false; // Temporarily disable recording
-
-  switch (last_action.type) {
-  case ACTION_INSERT_CHAR:
-    // Undo insert char: delete char at recorded position
-    // Need to adjust cursor to recorded position first
-    E.cy = last_action.row;
-    E.cx = last_action.col;
-    // Perform the deletion without recording it
-    EditorLine *line_to_delete_from = &E.lines.elements[E.cy];
-    memmove(&line_to_delete_from->text[E.cx],
-            &line_to_delete_from->text[E.cx + 1],
-            line_to_delete_from->len - E.cx);
-    line_to_delete_from->len--;
-    line_to_delete_from->text =
-        realloc(line_to_delete_from->text, line_to_delete_from->len + 1);
-    E.dirty = 1;
-    editor_update_syntax(E.cy);
-    break;
-  case ACTION_DELETE_CHAR:
-    // Undo delete char: insert char at recorded position
-    // Need to adjust cursor to recorded position first
-    E.cy = last_action.row;
-    E.cx = last_action.col;
-    // Perform the insertion without recording it
-    EditorLine *line_to_insert_into = &E.lines.elements[E.cy];
-    line_to_insert_into->text =
-        realloc(line_to_insert_into->text, line_to_insert_into->len + 2);
-    memmove(&line_to_insert_into->text[E.cx + 1],
-            &line_to_insert_into->text[E.cx],
-            line_to_insert_into->len - E.cx + 1);
-    line_to_insert_into->text[E.cx] = last_action.character;
-    line_to_insert_into->len++;
-    E.dirty = 1;
-    editor_update_syntax(E.cy);
-    break;
-  case ACTION_INSERT_NEWLINE:
-    // Undo insert newline: delete the newline at the recorded position
-    E.cy = last_action.row;
-    E.cx = last_action.col;
-    // Perform the deletion without recording it
-    if (E.cy < E.lines.size - 1) { // If not the last line
-      EditorLine *current_line = &E.lines.elements[E.cy];
-      EditorLine *next_line = &E.lines.elements[E.cy + 1];
-
-      current_line->text =
-          realloc(current_line->text, current_line->len + next_line->len + 1);
-      memcpy(&current_line->text[current_line->len], next_line->text,
-             next_line->len);
-      current_line->len += next_line->len;
-      current_line->text[current_line->len] = '\0';
-
-      editor_lines_array_delete(&E.lines, E.cy + 1);
-      E.dirty = 1;
-      editor_update_syntax(E.cy);
-    }
-    break;
-  case ACTION_DELETE_LINE:
-    // Undo delete line: insert line with recorded content
-    {
-      EditorLine new_line = {.text = last_action.line_content,
-                             .len = last_action.line_len,
-                             .hl = NULL,
-                             .hl_open_comment = 0};
-      editor_lines_array_insert(&E.lines, last_action.row, new_line);
-      E.cy = last_action.row;
-      E.cx = last_action.col;
-      E.dirty = 1;
-      editor_update_syntax(E.cy);
-    }
-    break;
-  default:
-    editor_set_status_message("Undo: Unknown action type.");
-    break;
-  }
-
-  editor_set_status_message("Undo successful.");
-  editor_refresh_screen();
-
-  E.recording_actions = true; // Re-enable recording
-}
-
 void editor_find() {
   char *query =
       editor_prompt("Search (Use arrows to navigate, ESC to cancel): %s",
@@ -805,30 +711,4 @@ void paste_from_clipboard() {
                                 clipboard_tool);
     }
   }
-}
-
-void editor_record_action(EditorAction action) {
-  if (!E.recording_actions) {
-    return;
-  }
-  if (E.undo_history_idx < E.undo_history_len) {
-    for (int i = E.undo_history_idx; i < E.undo_history_len; ++i) {
-      // In a real implementation, you'd free any memory associated with these
-      // discarded actions For now, we're just overwriting them.
-    }
-    E.undo_history_len = E.undo_history_idx;
-  }
-
-  if (E.undo_history_len == MAX_UNDO_STATES) {
-    // In a real implementation, you'd free any memory associated with the
-    // oldest action For now, we're just overwriting it.
-    memmove(&E.undo_history[0], &E.undo_history[1],
-            (MAX_UNDO_STATES - 1) * sizeof(EditorAction));
-    E.undo_history_len--;
-    E.undo_history_idx--;
-  }
-
-  E.undo_history[E.undo_history_idx] = action;
-  E.undo_history_len++;
-  E.undo_history_idx++;
 }

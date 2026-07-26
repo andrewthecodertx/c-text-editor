@@ -50,11 +50,9 @@ void editor_process_keypress();
 void editor_insert_char(int c);
 int editor_insert_newline();
 void editor_del_char();
-void editor_undo();
 void editor_find();
 void editor_find_next(int direction);
 void paste_from_clipboard();
-void editor_record_action(EditorAction action);
 void editor_free_snapshot(EditorStateSnapshot *snapshot);
 
 #endif // EDITOR_H
