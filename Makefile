@@ -6,7 +6,7 @@ SRCS = main.c editor.c file.c syntax.c ui.c error_handler.c editor_lines_array.c
 OBJS = $(SRCS:.c=.o)
 TARGET = erwintext
 
-.PHONY: all clean
+.PHONY: all clean format
 
 RM = rm -f
 
@@ -21,6 +21,9 @@ $(TARGET): $(OBJS)
 
 clean:
 	rm -f $(OBJS) $(TARGET)
+
+format:
+	clang-format -i $(shell find . -name '*.c' -o -name '*.h')
 
 install: all
 	cp $(TARGET) /usr/local/bin
