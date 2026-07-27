@@ -33,6 +33,10 @@ void init_editor() {
   E.dirty = 0;
   E.select_all_active = 0;
 
+  E.select_active = 0;
+  E.sel_start_row = 0;
+  E.sel_start_col = 0;
+
   E.undo_history_len = 0;
   E.undo_history_idx = 0;
   for (int i = 0; i < MAX_UNDO_STATES; ++i) {
@@ -94,38 +98,16 @@ void cleanup_editor() {
   }
 }
 
-static char *editor_build_selection_text(EditorSelectionRange range) {
-  if (range.start_row == range.end_row) {
-    EditorLine *sel_line = &E.lines.elements[range.start_row];
-    return strndup(&sel_line->text[range.start_col],
-                   range.end_col - range.start_col);
-  }
-
-  size_t total_len = 0;
-  for (int row = range.start_row; row <= range.end_row; row++) {
-    EditorLine *row_line = &E.lines.elements[row];
-    int start = (row == range.start_row) ? range.start_col : 0;
-    int end = (row == range.end_row) ? range.end_col : (int)row_line->len;
-    total_len += (end - start) + 2; // +2 for the "\n" marker between lines
-  }
-
-  char *text = malloc(total_len + 1);
-  text[0] = '\0';
-  for (int row = range.start_row; row <= range.end_row; row++) {
-    EditorLine *row_line = &E.lines.elements[row];
-    int start = (row == range.start_row) ? range.start_col : 0;
-    int end = (row == range.end_row) ? range.end_col : (int)row_line->len;
-    strncat(text, &row_line->text[start], end - start);
-    if (row != range.end_row) {
-      strcat(text, "\\n");
-    }
-  }
-  return text;
+static void editor_clear_selection() {
+  E.select_active = 0;
+  E.sel_start_row = 0;
+  E.sel_start_col = 0;
 }
 
 void editor_move_cursor(int key) {
   EditorLine *line = (E.cy >= E.lines.size) ? NULL : &E.lines.elements[E.cy];
-  int is_selection_text = (key == KEY_SLEFT || key == KEY_SRIGHT || key == KEY_SF || key == KEY_SR);
+  int is_selection_text =
+      (key == KEY_SLEFT || key == KEY_SRIGHT || key == KEY_SF || key == KEY_SR);
 
   /* text selection logic */
   if (is_selection_text) {
@@ -149,18 +131,8 @@ void editor_move_cursor(int key) {
       key = KEY_DOWN;
       break;
     }
-
   } else {
-    if (E.select_active) {
-      EditorSelectionRange range = editor_resolve_selection();
-      char *selected_text = editor_build_selection_text(range);
-      editor_set_status_message("Selected: \"%s\"", selected_text);
-      free(selected_text);
-    }
-
-    E.select_active = 0;
-    E.sel_start_row = 0;
-    E.sel_start_col = 0;
+    editor_clear_selection();
   }
   /* text selection logic */
 
@@ -259,6 +231,13 @@ void editor_process_keypress() {
   if (E.select_all_active && c != KEY_BACKSPACE && c != 127 && c != KEY_DC) {
     E.select_all_active = 0;
     editor_set_status_message("");
+  }
+
+  if (E.select_active && c != KEY_SLEFT && c != KEY_SRIGHT && c != KEY_SF &&
+      c != KEY_SR && c != KEY_LEFT && c != KEY_RIGHT && c != KEY_UP &&
+      c != KEY_DOWN && c != KEY_HOME && c != KEY_END && c != KEY_PPAGE &&
+      c != KEY_NPAGE) {
+    editor_clear_selection();
   }
 
   switch (c) {
@@ -398,13 +377,6 @@ void editor_process_keypress() {
     }
   } break;
   default:
-    // Clears the selection when something is typed.
-    if (E.select_active) {
-      E.select_active = 0;
-      E.sel_start_col = 0;
-      E.sel_start_row = 0;
-    }
-
     if (c >= 32 && c <= 126) {
       editor_insert_char(c);
     }
