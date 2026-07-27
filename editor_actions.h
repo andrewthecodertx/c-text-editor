@@ -22,4 +22,6 @@ typedef struct {
   size_t line_len;    // For delete line (stores length of deleted line)
 } EditorAction;
 
+void editor_action_free(EditorAction *action);
+
 #endif // EDITOR_ACTIONS_H

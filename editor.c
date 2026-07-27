@@ -87,10 +87,7 @@ void cleanup_editor() {
   }
 
   for (int i = 0; i < E.undo_history_len; ++i) {
-    if (E.undo_history[i].type == ACTION_DELETE_LINE &&
-        E.undo_history[i].line_content) {
-      free(E.undo_history[i].line_content);
-    }
+    editor_action_free(&E.undo_history[i]);
   }
 }
 
@@ -813,15 +810,13 @@ void editor_record_action(EditorAction action) {
   }
   if (E.undo_history_idx < E.undo_history_len) {
     for (int i = E.undo_history_idx; i < E.undo_history_len; ++i) {
-      // In a real implementation, you'd free any memory associated with these
-      // discarded actions For now, we're just overwriting them.
+      editor_action_free(&E.undo_history[i]);
     }
     E.undo_history_len = E.undo_history_idx;
   }
 
   if (E.undo_history_len == MAX_UNDO_STATES) {
-    // In a real implementation, you'd free any memory associated with the
-    // oldest action For now, we're just overwriting it.
+    editor_action_free(&E.undo_history[0]);
     memmove(&E.undo_history[0], &E.undo_history[1],
             (MAX_UNDO_STATES - 1) * sizeof(EditorAction));
     E.undo_history_len--;
