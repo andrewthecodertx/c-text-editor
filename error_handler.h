@@ -4,6 +4,6 @@
 
 #include "error_codes.h"
 
-void editor_handle_error(EditorErrorCode code, const char *fmt, ...);
+void editor_handle_error(EditorErrorCode code, const char* fmt, ...);
 
 #endif // ERROR_HANDLER_H
