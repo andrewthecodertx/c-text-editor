@@ -37,6 +37,10 @@ void init_editor()
     E.dirty = 0;
     E.select_all_active = 0;
 
+    E.select_active = 0;
+    E.sel_start_row = 0;
+    E.sel_start_col = 0;
+
     E.undo_history_len = 0;
     E.undo_history_idx = 0;
     for (int i = 0; i < MAX_UNDO_STATES; ++i)
@@ -104,12 +108,54 @@ void cleanup_editor()
     }
 }
 
+static void editor_clear_selection()
+{
+    E.select_active = 0;
+    E.sel_start_row = 0;
+    E.sel_start_col = 0;
+}
+
 void editor_move_cursor(int key)
 {
     EditorLine* line = (E.cy >= E.lines.size) ? NULL : &E.lines.elements[E.cy];
+    int is_selection_text =
+        (key == KEY_SLEFT || key == KEY_SRIGHT || key == KEY_SF || key == KEY_SR);
+
+    /* text selection logic */
+    if (is_selection_text)
+    {
+        if (!E.select_active)
+        {
+            E.select_active = 1;
+            E.sel_start_row = E.cy;
+            E.sel_start_col = E.cx;
+        }
+
+        switch (key)
+        {
+        case KEY_SRIGHT:
+            key = KEY_RIGHT;
+            break;
+        case KEY_SLEFT:
+            key = KEY_LEFT;
+            break;
+        case KEY_SR:
+            key = KEY_UP;
+            break;
+        case KEY_SF:
+            key = KEY_DOWN;
+            break;
+        }
+    }
+    else
+    {
+        editor_clear_selection();
+    }
+    /* text selection logic */
 
     switch (key)
     {
+
     case KEY_LEFT:
         if (E.cx > 0)
         {
@@ -182,6 +228,28 @@ void editor_move_cursor(int key)
     }
 }
 
+EditorSelectionRange editor_resolve_selection()
+{
+    EditorSelectionRange range;
+
+    if (E.sel_start_row < E.cy || (E.sel_start_row == E.cy && E.sel_start_col <= E.cx))
+    {
+        range.start_row = E.sel_start_row;
+        range.start_col = E.sel_start_col;
+        range.end_row = E.cy;
+        range.end_col = E.cx;
+    }
+    else
+    {
+        range.start_row = E.cy;
+        range.start_col = E.cx;
+        range.end_row = E.sel_start_row;
+        range.end_col = E.sel_start_col;
+    }
+
+    return range;
+}
+
 void editor_process_keypress()
 {
     int c = getch();
@@ -204,6 +272,13 @@ void editor_process_keypress()
     {
         E.select_all_active = 0;
         editor_set_status_message("");
+    }
+
+    if (E.select_active && c != KEY_SLEFT && c != KEY_SRIGHT && c != KEY_SF && c != KEY_SR &&
+        c != KEY_LEFT && c != KEY_RIGHT && c != KEY_UP && c != KEY_DOWN && c != KEY_HOME &&
+        c != KEY_END && c != KEY_PPAGE && c != KEY_NPAGE)
+    {
+        editor_clear_selection();
     }
 
     switch (c)
@@ -262,6 +337,10 @@ void editor_process_keypress()
         editor_insert_newline();
         break;
 
+    case KEY_SLEFT:
+    case KEY_SRIGHT:
+    case KEY_SF:
+    case KEY_SR:
     case KEY_HOME:
     case KEY_END:
     case KEY_PPAGE:

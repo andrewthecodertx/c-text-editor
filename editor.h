@@ -21,6 +21,14 @@ typedef struct
 
 typedef struct
 {
+    int start_row;
+    int start_col;
+    int end_row;
+    int end_col;
+} EditorSelectionRange;
+
+typedef struct
+{
     EditorLinesArray lines;
     int cx, cy;
     int row_offset;
@@ -29,6 +37,10 @@ typedef struct
     char* filename;
     int dirty;
     int select_all_active;
+
+    int select_active;
+    int sel_start_row;
+    int sel_start_col;
 
     EditorAction undo_history[MAX_UNDO_STATES];
     int undo_history_len;
@@ -48,6 +60,7 @@ extern EditorSyntax* E_syntax;
 void init_editor();
 void cleanup_editor();
 void editor_move_cursor(int key);
+EditorSelectionRange editor_resolve_selection();
 void editor_process_keypress();
 void editor_insert_char(int c);
 int editor_insert_newline();
