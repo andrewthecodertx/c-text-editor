@@ -27,6 +27,13 @@ typedef struct
     int end_col;
 } EditorSelectionRange;
 
+typedef enum
+{
+    CLIPBOARD_NONE,
+    CLIPBOARD_WAYLAND,
+    CLIPBOARD_X11
+} ClipboardTool;
+
 typedef struct
 {
     EditorLinesArray lines;
@@ -41,6 +48,8 @@ typedef struct
     int select_active;
     int sel_start_row;
     int sel_start_col;
+
+    ClipboardTool clipboard_tool;
 
     EditorAction undo_history[MAX_UNDO_STATES];
     int undo_history_len;
@@ -61,6 +70,8 @@ void init_editor();
 void cleanup_editor();
 void editor_move_cursor(int key);
 EditorSelectionRange editor_resolve_selection();
+int editor_get_selection_range(EditorSelectionRange* out);
+char* editor_get_selected_text(EditorSelectionRange range);
 void editor_process_keypress();
 void editor_insert_char(int c);
 int editor_insert_newline();

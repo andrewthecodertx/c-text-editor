@@ -26,6 +26,28 @@ EditorConfig* get_editor_config()
     return &E;
 }
 
+static ClipboardTool editor_detect_clipboard_tool()
+{
+    if (getenv("XDG_SESSION_TYPE") != NULL && strcmp(getenv("XDG_SESSION_TYPE"), "wayland") == 0)
+    {
+        int has_wl_copy =
+            access("/usr/bin/wl-copy", X_OK) == 0 || access("/bin/wl-copy", X_OK) == 0;
+        int has_wl_paste =
+            access("/usr/bin/wl-paste", X_OK) == 0 || access("/bin/wl-paste", X_OK) == 0;
+        if (has_wl_copy && has_wl_paste)
+        {
+            return CLIPBOARD_WAYLAND;
+        }
+    }
+
+    if (access("/usr/bin/xclip", X_OK) == 0 || access("/bin/xclip", X_OK) == 0)
+    {
+        return CLIPBOARD_X11;
+    }
+
+    return CLIPBOARD_NONE;
+}
+
 void init_editor()
 {
     E.cx = 0;
@@ -36,6 +58,7 @@ void init_editor()
     E.filename = NULL;
     E.dirty = 0;
     E.select_all_active = 0;
+    E.clipboard_tool = editor_detect_clipboard_tool();
 
     E.select_active = 0;
     E.sel_start_row = 0;
@@ -107,6 +130,7 @@ void cleanup_editor()
 
 static void editor_clear_selection()
 {
+    E.select_all_active = 0;
     E.select_active = 0;
     E.sel_start_row = 0;
     E.sel_start_col = 0;
@@ -115,19 +139,15 @@ static void editor_clear_selection()
 void editor_move_cursor(int key)
 {
     EditorLine* line = (E.cy >= E.lines.size) ? NULL : &E.lines.elements[E.cy];
-    int is_selection_text =
-        (key == KEY_SLEFT || key == KEY_SRIGHT || key == KEY_SF || key == KEY_SR);
 
-    /* text selection logic */
-    if (is_selection_text)
+    /* TODO: Implement direct Shift + Navigation shortcuts (Shift+Home, Shift+End,
+     * Shift+PageUp/Down). Fast selection currently works by entering selection mode via
+     * Shift+Arrow, releasing Shift, and using navigation keys (Home, End, PageUp, PageDown). Future
+     * feature: Support direct Shift + Navigation key combinations to start and extend selection
+     * directly for a more intuitive user experience.
+     */
+    if (E.select_active)
     {
-        if (!E.select_active)
-        {
-            E.select_active = 1;
-            E.sel_start_row = E.cy;
-            E.sel_start_col = E.cx;
-        }
-
         switch (key)
         {
         case KEY_SRIGHT:
@@ -148,7 +168,6 @@ void editor_move_cursor(int key)
     {
         editor_clear_selection();
     }
-    /* text selection logic */
 
     switch (key)
     {
@@ -247,6 +266,157 @@ EditorSelectionRange editor_resolve_selection()
     return range;
 }
 
+int editor_get_selection_range(EditorSelectionRange* out)
+{
+    if (E.select_all_active)
+    {
+        out->start_row = 0;
+        out->start_col = 0;
+        out->end_row = E.lines.size > 0 ? E.lines.size - 1 : 0;
+        out->end_col = E.lines.size > 0 ? E.lines.elements[out->end_row].len : 0;
+        return 1;
+    }
+    if (E.select_active)
+    {
+        *out = editor_resolve_selection();
+        return 1;
+    }
+    return 0;
+}
+
+char* editor_get_selected_text(EditorSelectionRange range)
+{
+    size_t total_len = 0;
+
+    for (int row = range.start_row; row <= range.end_row; row++)
+    {
+        EditorLine* line = &E.lines.elements[row];
+        size_t from = (row == range.start_row) ? (size_t) range.start_col : 0;
+        size_t to = (row == range.end_row) ? (size_t) range.end_col : line->len;
+        total_len += to - from;
+        if (row != range.end_row)
+        {
+            total_len += 1; // '\n'
+        }
+    }
+
+    char* text = malloc(total_len + 1);
+    if (text == NULL)
+    {
+        editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory building selected text.");
+        return NULL;
+    }
+
+    size_t pos = 0;
+    for (int row = range.start_row; row <= range.end_row; row++)
+    {
+        EditorLine* line = &E.lines.elements[row];
+        size_t from = (row == range.start_row) ? (size_t) range.start_col : 0;
+        size_t to = (row == range.end_row) ? (size_t) range.end_col : line->len;
+        size_t chunk_len = to - from;
+
+        memcpy(&text[pos], &line->text[from], chunk_len);
+        pos += chunk_len;
+
+        if (row != range.end_row)
+        {
+            text[pos++] = '\n';
+        }
+    }
+    text[pos] = '\0';
+
+    return text;
+}
+
+static void editor_send_to_clipboard(const char* text, size_t len)
+{
+    int pipefd[2];
+    pid_t pid;
+    char* clipboard_tool = NULL;
+    char* argv[4];
+
+    switch (E.clipboard_tool)
+    {
+    case CLIPBOARD_WAYLAND:
+        clipboard_tool = "wl-copy";
+        argv[0] = "wl-copy";
+        argv[1] = NULL;
+        break;
+    case CLIPBOARD_X11:
+        clipboard_tool = "xclip";
+        argv[0] = "xclip";
+        argv[1] = "-selection";
+        argv[2] = "clipboard";
+        argv[3] = NULL;
+        break;
+    case CLIPBOARD_NONE:
+    default:
+        editor_handle_error(ERR_CLIPBOARD_TOOL,
+                            "Copy error: Neither wl-copy nor xclip found. Please install one.");
+        return;
+    }
+
+    editor_set_status_message("Attempting to copy using %s...", clipboard_tool);
+    editor_refresh_screen();
+
+    fflush(stdout);
+
+    if (pipe(pipefd) == -1)
+    {
+        editor_handle_error(ERR_CLIPBOARD_TOOL, "Copy error: Failed to create pipe.");
+        return;
+    }
+
+    pid = fork();
+    if (pid == -1)
+    {
+        editor_handle_error(ERR_CLIPBOARD_TOOL, "Copy error: Failed to fork process.");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return;
+    }
+
+    if (pid == 0)
+    {
+        close(pipefd[1]);
+        dup2(pipefd[0], STDIN_FILENO);
+        close(pipefd[0]);
+
+        execvp(clipboard_tool, argv);
+
+        _exit(1);
+    }
+    else
+    {
+        close(pipefd[0]);
+
+        size_t written = 0;
+        while (written < len)
+        {
+            ssize_t bytes_written = write(pipefd[1], text + written, len - written);
+            if (bytes_written <= 0)
+            {
+                break;
+            }
+            written += (size_t) bytes_written;
+        }
+        close(pipefd[1]);
+
+        int status;
+        waitpid(pid, &status, 0);
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        {
+            editor_set_status_message("Copied to clipboard using %s.", clipboard_tool);
+        }
+        else
+        {
+            editor_set_status_message("Copy error: %s failed or returned an error.",
+                                      clipboard_tool);
+        }
+    }
+}
+
 void editor_process_keypress()
 {
     int c = getch();
@@ -265,15 +435,26 @@ void editor_process_keypress()
         editor_refresh_screen();
     }
 
-    if (E.select_all_active && c != KEY_BACKSPACE && c != 127 && c != KEY_DC)
+    if (E.select_all_active && c != CTRL('c') && c != CTRL('x') && c != CTRL('a') &&
+        c != KEY_BACKSPACE && c != 127 && c != KEY_DC)
     {
         E.select_all_active = 0;
         editor_set_status_message("");
     }
 
-    if (E.select_active && c != KEY_SLEFT && c != KEY_SRIGHT && c != KEY_SF && c != KEY_SR &&
-        c != KEY_LEFT && c != KEY_RIGHT && c != KEY_UP && c != KEY_DOWN && c != KEY_HOME &&
-        c != KEY_END && c != KEY_PPAGE && c != KEY_NPAGE)
+    /* XXX: This "blacklist" approach to clear selection might not handle all edge cases.
+     * Checking against every navigation/copy key is hard to maintain.
+     * Revisit this: it may be cleaner to call editor_clear_selection()
+     * explicitly inside the relevant switch cases instead.
+     *
+     * Note: Currently, navigation keys (e.g., Page Down, Home, End) do not clear the selection
+     * to allow faster text navigation. To better mimic standard text editor behavior, consider
+     * checking if the Shift key remains pressed when these keys are struck (e.g., to determine
+     * whether to extend or clear the selection).
+     */
+    if ((E.select_active || E.select_all_active) && c != KEY_SLEFT && c != KEY_SRIGHT &&
+        c != KEY_SF && c != KEY_SR && c != KEY_HOME && c != KEY_END && c != KEY_PPAGE &&
+        c != KEY_NPAGE && c != CTRL('c') && c != CTRL('x') && c != CTRL('a'))
     {
         editor_clear_selection();
     }
@@ -281,29 +462,53 @@ void editor_process_keypress()
     switch (c)
     {
     case CTRL('q'):
-    case CTRL('c'):
         if (E.dirty)
         {
             editor_set_status_message("WARNING! File has unsaved changes. Press "
                                       "Ctrl+Q/C again to force quit.");
             editor_refresh_screen();
             int c2 = getch();
-            if (c2 != CTRL('q') && c2 != CTRL('c'))
+            if (c2 != CTRL('q'))
                 return;
         }
         cleanup_editor();
         exit(0);
         break;
 
+    case CTRL('c'):
+    {
+        EditorSelectionRange esr;
+        int status = editor_get_selection_range(&esr);
+        if (!status)
+        {
+            editor_set_status_message("Nothing to copy.");
+        }
+        else
+        {
+            char* txt = editor_get_selected_text(esr);
+
+            if (txt != NULL)
+            {
+                editor_send_to_clipboard(txt, strlen(txt));
+                free(txt);
+            }
+        }
+
+        editor_clear_selection();
+        break;
+    }
+
     case CTRL('s'):
         editor_save_file();
         break;
 
     case CTRL('a'):
+        editor_clear_selection();
+        editor_set_status_message("All text selected. Press Backspace to delete.");
+
         E.select_all_active = 1;
         E.cx = 0;
         E.cy = 0;
-        editor_set_status_message("All text selected. Press Backspace to delete.");
         cursor_moved = true;
         break;
 
@@ -338,6 +543,13 @@ void editor_process_keypress()
     case KEY_SRIGHT:
     case KEY_SF:
     case KEY_SR:
+        if (!E.select_active)
+        {
+            E.select_active = 1;
+            E.sel_start_row = E.cy;
+            E.sel_start_col = E.cx;
+        }
+        /* FALLTHROUGH */
     case KEY_HOME:
     case KEY_END:
     case KEY_PPAGE:
@@ -897,33 +1109,22 @@ void paste_from_clipboard()
     ssize_t bytes_read;
     char* clipboard_tool = NULL;
     char* argv[3];
-    int tool_found = 0;
 
-    if (getenv("XDG_SESSION_TYPE") != NULL && strcmp(getenv("XDG_SESSION_TYPE"), "wayland") == 0)
+    switch (E.clipboard_tool)
     {
-        if (access("/usr/bin/wl-paste", X_OK) == 0 || access("/bin/wl-paste", X_OK) == 0)
-        {
-            clipboard_tool = "wl-paste";
-            argv[0] = "wl-paste";
-            argv[1] = NULL;
-            tool_found = 1;
-        }
-    }
-
-    if (!tool_found)
-    {
-        if (access("/usr/bin/xclip", X_OK) == 0 || access("/bin/xclip", X_OK) == 0)
-        {
-            clipboard_tool = "xclip";
-            argv[0] = "xclip";
-            argv[1] = "-o";
-            argv[2] = NULL;
-            tool_found = 1;
-        }
-    }
-
-    if (!tool_found)
-    {
+    case CLIPBOARD_WAYLAND:
+        clipboard_tool = "wl-paste";
+        argv[0] = "wl-paste";
+        argv[1] = NULL;
+        break;
+    case CLIPBOARD_X11:
+        clipboard_tool = "xclip";
+        argv[0] = "xclip";
+        argv[1] = "-o";
+        argv[2] = NULL;
+        break;
+    case CLIPBOARD_NONE:
+    default:
         editor_handle_error(ERR_CLIPBOARD_TOOL,
                             "Paste error: Neither wl-paste nor xclip found. Please install one.");
         return;
