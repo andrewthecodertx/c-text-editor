@@ -9,7 +9,7 @@
 
 #include "editor_actions.h"
 
-#define MAX_UNDO_STATES 20
+#define MAX_UNDO_STATES 1000
 #define CTRL(k) ((k) & 0x1f)
 
 typedef struct
