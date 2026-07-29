@@ -56,7 +56,8 @@ void init_editor()
     E.last_match_row = -1;
     E.last_match_col = -1;
     E.find_active = false;
-    E.recording_actions = true;
+E.recording_actions = true;
+    E.critical_error = 0;
 
     initscr();
     raw();
@@ -253,6 +254,21 @@ void editor_process_keypress()
     bool cursor_moved = false;
     int original_cx = E.cx;
     int original_cy = E.cy;
+
+    if (E.critical_error)
+    {
+        if (c == CTRL('s'))
+        {
+            editor_save_file();
+        }
+        else if (c == CTRL('q') || c == CTRL('c'))
+        {
+            cleanup_editor();
+            exit(0);
+        }
+        editor_refresh_screen();
+        return;
+    }
 
     if (E.find_active && c != KEY_UP && c != KEY_DOWN && c != CTRL('f'))
     {

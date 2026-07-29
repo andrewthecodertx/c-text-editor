@@ -110,6 +110,16 @@ void editor_draw_message_bar()
     move(E->screen_rows + 1, 0);
     clrtoeol();
 
+    if (E->critical_error)
+    {
+        attron(A_BOLD | COLOR_PAIR(HL_NUMBER));
+        mvprintw(E->screen_rows + 1, 0,
+                 "CRITICAL ERROR: Memory/File error! Ctrl+S to save, Ctrl+Q/C to quit");
+        clrtoeol();
+        attroff(A_BOLD | COLOR_PAIR(HL_NUMBER));
+        return;
+    }
+
     int msglen = strlen(status_message);
     if (msglen > E->screen_cols)
         msglen = E->screen_cols;
