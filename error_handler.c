@@ -26,11 +26,11 @@ void editor_handle_error(EditorErrorCode code, const char* fmt, ...)
     editor_set_status_message("ERROR: %s", user_message);
     va_end(ap);
 
-    // 3. Decide on termination based on error code or severity
+// 3. Decide on termination based on error code or severity
     if (code == ERR_OUT_OF_MEMORY || code == ERR_FILE_OPERATION)
-    {                     // Fatal errors
-        cleanup_editor(); // Ensure resources are freed
-        exit(1);
+    {
+        EditorConfig* E = get_editor_config();
+        E->critical_error = 1;
     }
     // For non-fatal errors, simply return and let the calling function handle
     // recovery
