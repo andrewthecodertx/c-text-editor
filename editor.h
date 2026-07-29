@@ -51,7 +51,7 @@ typedef struct
     int last_match_row;
     int last_match_col;
     bool find_active;
-bool recording_actions;
+    bool recording_actions;
     int critical_error;
 } EditorConfig;
 

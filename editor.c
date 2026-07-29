@@ -56,7 +56,7 @@ void init_editor()
     E.last_match_row = -1;
     E.last_match_col = -1;
     E.find_active = false;
-E.recording_actions = true;
+    E.recording_actions = true;
     E.critical_error = 0;
 
     initscr();
