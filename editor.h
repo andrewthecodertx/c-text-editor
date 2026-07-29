@@ -54,21 +54,21 @@ typedef struct
     bool recording_actions;
 } EditorConfig;
 
-EditorConfig* get_editor_config();
+EditorConfig* get_editor_config(void);
 extern EditorSyntax* E_syntax;
 
-void init_editor();
-void cleanup_editor();
+void init_editor(void);
+void cleanup_editor(void);
 void editor_move_cursor(int key);
-EditorSelectionRange editor_resolve_selection();
-void editor_process_keypress();
+EditorSelectionRange editor_resolve_selection(void);
+void editor_process_keypress(void);
 void editor_insert_char(int c);
-int editor_insert_newline();
-void editor_del_char();
-void editor_undo();
-void editor_find();
+int editor_insert_newline(void);
+void editor_del_char(void);
+void editor_undo(void);
+void editor_find(void);
 void editor_find_next(int direction);
-void paste_from_clipboard();
+void paste_from_clipboard(void);
 void editor_record_action(EditorAction action);
 void editor_free_snapshot(EditorStateSnapshot* snapshot);
 

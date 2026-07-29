@@ -20,15 +20,31 @@ essential features for developers and writers.
 
 ## Building
 
-To build ErwinText, you'll need `ncurses` installed.
+To build ErwinText, you'll need a C99 compiler, `make`, and `ncurses`
+installed. Linux distributions usually provide ncurses through a package such
+as `libncurses-dev`; macOS includes a compatible system ncurses library.
 
-Then, simply run `make` in the project root directory:
+The default build is a debug build with AddressSanitizer and
+UndefinedBehaviorSanitizer enabled:
 
 ```bash
 make
 ```
 
 This will create an executable named `erwintext`.
+
+Additional build targets are available:
+
+```bash
+make debug    # -O0, debug symbols, ASan and UBSan
+make release  # optimized production binary
+make tsan     # ThreadSanitizer build
+make check    # static analysis with cppcheck
+make format-check
+```
+
+Build artifacts are kept under `build/`, with the selected executable copied
+to the project root.
 
 ### Installation
 
@@ -39,6 +55,13 @@ sudo make install
 ```
 
 This will copy the `erwintext` executable to `/usr/local/bin`.
+
+The installation prefix and staging root are configurable:
+
+```bash
+make install PREFIX="$HOME/.local"
+make install DESTDIR=/tmp/package-root PREFIX=/usr
+```
 
 To uninstall, run:
 

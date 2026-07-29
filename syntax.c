@@ -89,7 +89,7 @@ EditorSyntax XML_syntax = {
 EditorSyntax* EditorSyntaxes[] = {&C_syntax,   &SH_syntax,  &JS_syntax, &HTML_syntax,
                                   &CSS_syntax, &XML_syntax, NULL};
 
-void editor_select_syntax_highlight()
+void editor_select_syntax_highlight(void)
 {
     EditorConfig* E = get_editor_config();
     E_syntax = NULL;

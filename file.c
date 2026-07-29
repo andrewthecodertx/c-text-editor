@@ -84,7 +84,7 @@ void editor_read_file(const char* filename)
     editor_set_status_message("Opened file: %s (%d lines)", filename, E->lines.size);
 }
 
-void editor_save_file()
+void editor_save_file(void)
 {
     EditorConfig* E = get_editor_config();
     if (!E->filename)
