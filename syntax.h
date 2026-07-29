@@ -24,7 +24,7 @@ typedef struct
     char* multiline_comment_end;
 } EditorSyntax;
 
-void editor_select_syntax_highlight();
+void editor_select_syntax_highlight(void);
 void editor_update_syntax(int filerow);
 int is_separator(int c);
 

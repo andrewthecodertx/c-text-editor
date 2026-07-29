@@ -13,7 +13,7 @@
 char status_message[STATUS_MESSAGE_MAX_LEN];
 time_t status_message_time;
 
-void editor_draw_rows()
+void editor_draw_rows(void)
 {
     EditorConfig* E = get_editor_config();
     int y;
@@ -80,7 +80,7 @@ void editor_draw_rows()
     }
 }
 
-void editor_draw_status_bar()
+void editor_draw_status_bar(void)
 {
     EditorConfig* E = get_editor_config();
     attron(A_REVERSE);
@@ -104,7 +104,7 @@ void editor_set_status_message(const char* fmt, ...)
     status_message_time = time(NULL);
 }
 
-void editor_draw_message_bar()
+void editor_draw_message_bar(void)
 {
     EditorConfig* E = get_editor_config();
     move(E->screen_rows + 1, 0);
@@ -119,7 +119,7 @@ void editor_draw_message_bar()
     }
 }
 
-void editor_draw_clock()
+void editor_draw_clock(void)
 {
     EditorConfig* E = get_editor_config();
     time_t rawtime;
@@ -137,7 +137,7 @@ void editor_draw_clock()
     }
 }
 
-void editor_scroll()
+void editor_scroll(void)
 {
     EditorConfig* E = get_editor_config();
     if (E->cy < E->row_offset)
@@ -167,7 +167,7 @@ void editor_scroll()
     }
 }
 
-void editor_refresh_screen()
+void editor_refresh_screen(void)
 {
     EditorConfig* E = get_editor_config();
     editor_scroll();
@@ -183,7 +183,7 @@ void editor_refresh_screen()
     refresh();
 }
 
-int get_cx_display()
+int get_cx_display(void)
 {
     EditorConfig* E = get_editor_config();
     int display_cx = 0;
@@ -271,10 +271,9 @@ char* editor_prompt(const char* prompt_fmt, ...)
     }
 }
 
-void handle_winch(int sig)
+void editor_handle_resize(void)
 {
     EditorConfig* E = get_editor_config();
-    (void) sig;
     endwin();
     refresh();
     getmaxyx(stdscr, E->screen_rows, E->screen_cols);

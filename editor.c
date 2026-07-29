@@ -6,7 +6,6 @@
 #include "ui.h"
 
 #include <ncurses.h>
-#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,18 +14,16 @@
 #include <time.h>
 #include <unistd.h>
 
-void handle_winch(int sig);
-
 extern time_t status_message_time;
 
 static EditorConfig E;
 
-EditorConfig* get_editor_config()
+EditorConfig* get_editor_config(void)
 {
     return &E;
 }
 
-void init_editor()
+void init_editor(void)
 {
     E.cx = 0;
     E.cy = 0;
@@ -63,8 +60,6 @@ void init_editor()
     noecho();
     keypad(stdscr, TRUE);
 
-    signal(SIGWINCH, handle_winch);
-
     getmaxyx(stdscr, E.screen_rows, E.screen_cols);
     E.screen_rows -= 2;
 
@@ -85,7 +80,7 @@ void init_editor()
     mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
 }
 
-void cleanup_editor()
+void cleanup_editor(void)
 {
     endwin();
 
@@ -105,7 +100,7 @@ void cleanup_editor()
     }
 }
 
-static void editor_clear_selection()
+static void editor_clear_selection(void)
 {
     E.select_active = 0;
     E.sel_start_row = 0;
@@ -225,7 +220,7 @@ void editor_move_cursor(int key)
     }
 }
 
-EditorSelectionRange editor_resolve_selection()
+EditorSelectionRange editor_resolve_selection(void)
 {
     EditorSelectionRange range;
 
@@ -247,7 +242,7 @@ EditorSelectionRange editor_resolve_selection()
     return range;
 }
 
-void editor_process_keypress()
+void editor_process_keypress(void)
 {
     int c = getch();
     bool cursor_moved = false;
@@ -374,6 +369,13 @@ void editor_process_keypress()
         cursor_moved = true;
         break;
 
+#ifdef KEY_RESIZE
+    case KEY_RESIZE:
+        editor_handle_resize();
+        cursor_moved = true;
+        break;
+#endif
+
     case KEY_MOUSE:
     {
         MEVENT event;
@@ -418,6 +420,7 @@ void editor_process_keypress()
                 }
                 cursor_moved = true;
             }
+#ifdef BUTTON4_PRESSED
             else if (event.bstate & BUTTON4_PRESSED)
             {
                 for (int i = 0; i < 3; ++i)
@@ -426,6 +429,8 @@ void editor_process_keypress()
                 }
                 cursor_moved = true;
             }
+#endif
+#ifdef BUTTON5_PRESSED
             else if (event.bstate & BUTTON5_PRESSED)
             {
                 for (int i = 0; i < 3; ++i)
@@ -434,6 +439,7 @@ void editor_process_keypress()
                 }
                 cursor_moved = true;
             }
+#endif
         }
     }
     break;
@@ -485,7 +491,7 @@ void editor_insert_char(int c)
     editor_update_syntax(E.cy);
 }
 
-int editor_insert_newline()
+int editor_insert_newline(void)
 {
     EditorAction action = {.type = ACTION_INSERT_NEWLINE, .row = E.cy, .col = E.cx};
     editor_record_action(action);
@@ -554,7 +560,7 @@ int editor_insert_newline()
     return 0;
 }
 
-void editor_del_char()
+void editor_del_char(void)
 {
     EditorAction action = {.type = ACTION_DELETE_CHAR, .row = E.cy, .col = E.cx};
     if (E.cx > 0)
@@ -648,7 +654,7 @@ void editor_del_char()
     }
 }
 
-void editor_undo()
+void editor_undo(void)
 {
     if (E.undo_history_idx <= 0)
     {
@@ -742,7 +748,7 @@ void editor_undo()
     E.recording_actions = true; // Re-enable recording
 }
 
-void editor_find()
+void editor_find(void)
 {
     char* query = editor_prompt("Search (Use arrows to navigate, ESC to cancel): %s",
                                 E.search_query ? E.search_query : "");
@@ -889,7 +895,7 @@ void editor_find_next(int direction)
     editor_refresh_screen();
 }
 
-void paste_from_clipboard()
+void paste_from_clipboard(void)
 {
     int pipefd[2];
     pid_t pid;
