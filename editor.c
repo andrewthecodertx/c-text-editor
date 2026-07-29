@@ -140,12 +140,6 @@ void editor_move_cursor(int key)
 {
     EditorLine* line = (E.cy >= E.lines.size) ? NULL : &E.lines.elements[E.cy];
 
-    /* TODO: Implement direct Shift + Navigation shortcuts (Shift+Home, Shift+End,
-     * Shift+PageUp/Down). Fast selection currently works by entering selection mode via
-     * Shift+Arrow, releasing Shift, and using navigation keys (Home, End, PageUp, PageDown). Future
-     * feature: Support direct Shift + Navigation key combinations to start and extend selection
-     * directly for a more intuitive user experience.
-     */
     if (E.select_active)
     {
         switch (key)
@@ -161,6 +155,18 @@ void editor_move_cursor(int key)
             break;
         case KEY_SF:
             key = KEY_DOWN;
+            break;
+        case KEY_SHOME:
+            key = KEY_HOME;
+            break;
+        case KEY_SEND:
+            key = KEY_END;
+            break;
+        case KEY_SPREVIOUS:
+            key = KEY_PPAGE;
+            break;
+        case KEY_SNEXT:
+            key = KEY_NPAGE;
             break;
         }
     }
@@ -446,15 +452,10 @@ void editor_process_keypress()
      * Checking against every navigation/copy key is hard to maintain.
      * Revisit this: it may be cleaner to call editor_clear_selection()
      * explicitly inside the relevant switch cases instead.
-     *
-     * Note: Currently, navigation keys (e.g., Page Down, Home, End) do not clear the selection
-     * to allow faster text navigation. To better mimic standard text editor behavior, consider
-     * checking if the Shift key remains pressed when these keys are struck (e.g., to determine
-     * whether to extend or clear the selection).
      */
     if ((E.select_active || E.select_all_active) && c != KEY_SLEFT && c != KEY_SRIGHT &&
-        c != KEY_SF && c != KEY_SR && c != KEY_HOME && c != KEY_END && c != KEY_PPAGE &&
-        c != KEY_NPAGE && c != CTRL('c') && c != CTRL('x') && c != CTRL('a'))
+        c != KEY_SF && c != KEY_SR && c != KEY_SHOME && c != KEY_SEND && c != KEY_SPREVIOUS &&
+        c != KEY_SNEXT && c != CTRL('c') && c != CTRL('x') && c != CTRL('a'))
     {
         editor_clear_selection();
     }
@@ -543,13 +544,20 @@ void editor_process_keypress()
     case KEY_SRIGHT:
     case KEY_SF:
     case KEY_SR:
+    case KEY_SHOME:
+    case KEY_SEND:
+    case KEY_SPREVIOUS:
+    case KEY_SNEXT:
         if (!E.select_active)
         {
             E.select_active = 1;
             E.sel_start_row = E.cy;
             E.sel_start_col = E.cx;
         }
-        /* FALLTHROUGH */
+        editor_move_cursor(c);
+        cursor_moved = true;
+        break;
+
     case KEY_HOME:
     case KEY_END:
     case KEY_PPAGE:
