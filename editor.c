@@ -63,12 +63,12 @@ void init_editor(void)
 
     E.undo_history_len = 0;
     E.undo_history_idx = 0;
+    E.redo_history_len = 0;
+    E.redo_history_idx = 0;
     for (int i = 0; i < MAX_UNDO_STATES; ++i)
     {
-        // Initialize each EditorAction in the history to a default state if
-        // necessary For now, we'll just ensure its internal pointers are NULL or
-        // safe.
-        E.undo_history[i].line_content = NULL; // Ensure this is NULL initially
+        E.undo_history[i].line_content = NULL;
+        E.redo_history[i].line_content = NULL;
     }
 
     E.search_query = NULL;
@@ -121,6 +121,10 @@ void cleanup_editor(void)
     for (int i = 0; i < E.undo_history_len; ++i)
     {
         editor_action_free(&E.undo_history[i]);
+    }
+    for (int i = 0; i < E.redo_history_len; ++i)
+    {
+        editor_action_free(&E.redo_history[i]);
     }
 }
 
@@ -192,8 +196,11 @@ void editor_move_cursor(int key)
         }
         else if (line && (size_t) E.cx == line->len && E.cy < E.lines.size - 1)
         {
-            E.cy++;
-            E.cx = 0;
+            if (line && (size_t) E.cx == line->len && E.cy < E.lines.size - 1)
+            {
+                E.cy++;
+                E.cx = 0;
+            }
         }
         break;
     case KEY_UP:
@@ -341,7 +348,16 @@ void editor_delete_range(EditorSelectionRange range)
                            .col = range.start_col,
                            .line_content = text,
                            .line_len = len};
-    editor_record_action(action);
+    if (E.recording_actions)
+    {
+        // editor_record_action() drops the action without freeing it when
+        // recording is off, so only push when it will actually be kept.
+        editor_record_action(action);
+    }
+    else
+    {
+        free(text);
+    }
 
     // Avoid editor_del_char()'s select-all shortcut, which wipes the whole buffer
     // in one call and would break the loop count below.
@@ -350,12 +366,6 @@ void editor_delete_range(EditorSelectionRange range)
     E.cy = range.end_row;
     E.cx = range.end_col;
 
-    // FIX: ranges spanning a line break delete the wrong characters. Deleting
-    // backwards assumes editor_del_char() leaves the cursor at the join, but its
-    // merge branch adds line->len to prev_line->len before reading it back into
-    // E.cx, parking the cursor at the end of the merged line: cutting "bc\nde" out
-    // of "abc"/"def" yields "ab", not "af". Root cause is pre-existing in
-    // editor_del_char() (plain Backspace hits it too) and tracked separately.
     E.recording_actions = false;
     for (size_t i = 0; i < len; i++)
     {
@@ -595,12 +605,20 @@ void editor_process_keypress(void)
     case CTRL('c'):
     {
         EditorSelectionRange esr;
-        char* txt = editor_get_selection_range(&esr) ? editor_get_selected_text(esr)
-                                                     : editor_current_line_text();
-        if (txt != NULL)
+        int status = editor_get_selection_range(&esr);
+        if (!status)
         {
-            editor_send_to_clipboard(txt, strlen(txt));
-            free(txt);
+            editor_set_status_message("Nothing to copy.");
+        }
+        else
+        {
+            char* txt = editor_get_selected_text(esr);
+
+            if (txt != NULL)
+            {
+                editor_send_to_clipboard(txt, strlen(txt));
+                free(txt);
+            }
         }
 
         editor_clear_selection();
@@ -657,6 +675,10 @@ void editor_process_keypress(void)
 
     case CTRL('z'):
         editor_undo();
+        break;
+
+    case CTRL('y'):
+        editor_redo();
         break;
 
     case CTRL('f'):
@@ -933,8 +955,13 @@ void editor_del_char(void)
     else
     {
         action.type = ACTION_DELETE_LINE;
-        action.line_content = strdup(E.lines.elements[E.cy].text);
-        action.line_len = E.lines.elements[E.cy].len;
+        if (E.recording_actions)
+        {
+            // editor_record_action() drops the action without freeing it when
+            // recording is off, so only allocate when it will actually be kept.
+            action.line_content = strdup(E.lines.elements[E.cy].text);
+            action.line_len = E.lines.elements[E.cy].len;
+        }
     }
     editor_record_action(action);
     if (E.select_all_active)
@@ -988,6 +1015,7 @@ void editor_del_char(void)
                 return;
             }
             memcpy(&prev_line->text[prev_line->len], line->text, line->len);
+            int ecx_prevline = prev_line->len;
             prev_line->len += line->len;
             prev_line->text[prev_line->len] = '\0';
 
@@ -1008,12 +1036,426 @@ void editor_del_char(void)
             }
             else
             {
-                E.cx = prev_line->len;
+                E.cx = ecx_prevline;
                 E.cy--;
                 editor_update_syntax(E.cy);
             }
             E.dirty = 1;
         }
+    }
+}
+
+static EditorAction editor_action_clone(const EditorAction* src)
+{
+    EditorAction copy = *src;
+    if ((copy.type == ACTION_DELETE_LINE || copy.type == ACTION_DELETE_RANGE) &&
+        copy.line_content != NULL)
+    {
+        copy.line_content = strdup(copy.line_content);
+        if (copy.line_content == NULL)
+        {
+            editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory cloning undo action.");
+            copy.line_len = 0;
+        }
+    }
+    return copy;
+}
+
+static void editor_history_push(EditorAction* history, int* len, int* idx, EditorAction action)
+{
+    if (*len == MAX_UNDO_STATES)
+    {
+        /* Drop oldest entry and free any owned line_content to avoid leaks. */
+        editor_action_free(&history[0]);
+        memmove(&history[0], &history[1], (MAX_UNDO_STATES - 1) * sizeof(EditorAction));
+        (*len)--;
+        if (*idx > 0)
+        {
+            (*idx)--;
+        }
+    }
+
+    history[*idx] = action;
+    (*len)++;
+    (*idx)++;
+}
+
+static void editor_clear_redo_history(void)
+{
+    for (int i = 0; i < E.redo_history_len; ++i)
+    {
+        editor_action_free(&E.redo_history[i]);
+    }
+    E.redo_history_len = 0;
+    E.redo_history_idx = 0;
+}
+
+static int editor_apply_insert_char(int row, int col, char ch)
+{
+    if (row == E.lines.size)
+    {
+        EditorLine new_line = {.text = strdup(""), .len = 0, .hl = NULL, .hl_open_comment = 0};
+        if (new_line.text == NULL)
+        {
+            editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory applying insert char.");
+            return -1;
+        }
+        editor_lines_array_append(&E.lines, new_line);
+    }
+
+    if (row < 0 || row >= E.lines.size)
+    {
+        return -1;
+    }
+
+    EditorLine* line = &E.lines.elements[row];
+    if (col < 0 || (size_t) col > line->len)
+    {
+        col = (int) line->len;
+    }
+
+    line->text = realloc(line->text, line->len + 2);
+    if (line->text == NULL)
+    {
+        editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory applying insert char.");
+        return -1;
+    }
+    memmove(&line->text[col + 1], &line->text[col], line->len - col + 1);
+    line->text[col] = ch;
+    line->len++;
+    E.cy = row;
+    E.cx = col + 1;
+    E.dirty = 1;
+    editor_update_syntax(row);
+    return 0;
+}
+
+static int editor_apply_delete_char_at(int row, int col)
+{
+    /* Delete the character at index col. */
+    if (row < 0 || row >= E.lines.size)
+    {
+        return -1;
+    }
+    EditorLine* line = &E.lines.elements[row];
+    if (col < 0 || (size_t) col >= line->len)
+    {
+        return -1;
+    }
+
+    memmove(&line->text[col], &line->text[col + 1], line->len - col);
+    line->len--;
+    line->text = realloc(line->text, line->len + 1);
+    if (line->text == NULL)
+    {
+        editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory applying delete char.");
+        return -1;
+    }
+    E.cy = row;
+    E.cx = col;
+    E.dirty = 1;
+    editor_update_syntax(row);
+    return 0;
+}
+
+static int editor_apply_insert_newline(int row, int col)
+{
+    if (E.lines.size == 0)
+    {
+        EditorLine new_line = {.text = strdup(""), .len = 0, .hl = NULL, .hl_open_comment = 0};
+        if (new_line.text == NULL)
+        {
+            editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory applying newline.");
+            return -1;
+        }
+        editor_lines_array_append(&E.lines, new_line);
+        E.cy = 0;
+        E.cx = 0;
+        E.dirty = 1;
+        editor_update_syntax(0);
+        return 0;
+    }
+
+    if (row < 0 || row >= E.lines.size)
+    {
+        return -1;
+    }
+
+    EditorLine new_line = {.text = NULL, .len = 0, .hl = NULL, .hl_open_comment = 0};
+    editor_lines_array_insert(&E.lines, row + 1, new_line);
+
+    EditorLine* current_line = &E.lines.elements[row];
+    if (col < 0)
+    {
+        col = 0;
+    }
+    if ((size_t) col > current_line->len)
+    {
+        col = (int) current_line->len;
+    }
+
+    E.lines.elements[row + 1].len = current_line->len - col;
+    E.lines.elements[row + 1].text = strdup(&current_line->text[col]);
+    if (E.lines.elements[row + 1].text == NULL)
+    {
+        editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory applying newline split.");
+        return -1;
+    }
+    E.lines.elements[row + 1].hl = NULL;
+    E.lines.elements[row + 1].hl_open_comment = 0;
+
+    current_line->text = realloc(current_line->text, (size_t) col + 1);
+    if (current_line->text == NULL)
+    {
+        editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory truncating line on newline.");
+        return -1;
+    }
+    current_line->text[col] = '\0';
+    current_line->len = col;
+    current_line->hl = NULL;
+    current_line->hl_open_comment = 0;
+
+    E.cy = row + 1;
+    E.cx = 0;
+    E.dirty = 1;
+    editor_update_syntax(row);
+    editor_update_syntax(row + 1);
+    return 0;
+}
+
+static int editor_apply_delete_line_join(int row)
+{
+    /* Re-apply join: merge line `row` into the previous line and delete `row`. */
+    if (row <= 0 || row >= E.lines.size)
+    {
+        return -1;
+    }
+
+    EditorLine* line = &E.lines.elements[row];
+    EditorLine* prev_line = &E.lines.elements[row - 1];
+    size_t prev_len = prev_line->len;
+
+    prev_line->text = realloc(prev_line->text, prev_line->len + line->len + 1);
+    if (prev_line->text == NULL)
+    {
+        editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory applying line join.");
+        return -1;
+    }
+    memcpy(&prev_line->text[prev_line->len], line->text, line->len);
+    prev_line->len += line->len;
+    prev_line->text[prev_line->len] = '\0';
+
+    editor_lines_array_delete(&E.lines, row);
+
+    if (E.lines.size == 0)
+    {
+        EditorLine empty = {.text = strdup(""), .len = 0, .hl = NULL, .hl_open_comment = 0};
+        if (empty.text == NULL)
+        {
+            editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory after line join.");
+            return -1;
+        }
+        editor_lines_array_append(&E.lines, empty);
+        E.cx = 0;
+        E.cy = 0;
+        editor_update_syntax(0);
+    }
+    else
+    {
+        E.cy = row - 1;
+        E.cx = (int) prev_len;
+        editor_update_syntax(E.cy);
+    }
+    E.dirty = 1;
+    return 0;
+}
+
+static int editor_apply_undo_action(const EditorAction* action)
+{
+    switch (action->type)
+    {
+    case ACTION_INSERT_CHAR:
+        return editor_apply_delete_char_at(action->row, action->col);
+
+    case ACTION_DELETE_CHAR:
+        /* Recorded col is cursor before backspace; deleted char was at col-1. */
+        if (action->col <= 0)
+        {
+            return -1;
+        }
+        if (editor_apply_insert_char(action->row, action->col - 1, action->character) != 0)
+        {
+            return -1;
+        }
+        E.cx = action->col;
+        return 0;
+
+    case ACTION_INSERT_NEWLINE:
+        E.cy = action->row;
+        E.cx = action->col;
+        if (E.cy < E.lines.size - 1)
+        {
+            EditorLine* current_line = &E.lines.elements[E.cy];
+            EditorLine* next_line = &E.lines.elements[E.cy + 1];
+
+            current_line->text =
+                realloc(current_line->text, current_line->len + next_line->len + 1);
+            if (current_line->text == NULL)
+            {
+                editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory undoing newline.");
+                return -1;
+            }
+            memcpy(&current_line->text[current_line->len], next_line->text, next_line->len);
+            current_line->len += next_line->len;
+            current_line->text[current_line->len] = '\0';
+
+            editor_lines_array_delete(&E.lines, E.cy + 1);
+            E.dirty = 1;
+            editor_update_syntax(E.cy);
+        }
+        return 0;
+
+    case ACTION_DELETE_LINE:
+        /* Backspace at col 0 joined this line into the previous one. Split it back. */
+        {
+            int row = action->row;
+            if (row <= 0 || action->line_content == NULL)
+            {
+                return -1;
+            }
+            if (row - 1 >= E.lines.size)
+            {
+                return -1;
+            }
+
+            EditorLine* prev = &E.lines.elements[row - 1];
+            if (prev->len < action->line_len)
+            {
+                return -1;
+            }
+            size_t split_at = prev->len - action->line_len;
+
+            char* restored = strdup(action->line_content);
+            if (restored == NULL)
+            {
+                editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory undoing line delete.");
+                return -1;
+            }
+
+            prev->text = realloc(prev->text, split_at + 1);
+            if (prev->text == NULL)
+            {
+                free(restored);
+                editor_handle_error(ERR_OUT_OF_MEMORY, "Out of memory undoing line delete.");
+                return -1;
+            }
+            prev->text[split_at] = '\0';
+            prev->len = split_at;
+            prev->hl = NULL;
+            prev->hl_open_comment = 0;
+
+            EditorLine new_line = {
+                .text = restored, .len = action->line_len, .hl = NULL, .hl_open_comment = 0};
+            editor_lines_array_insert(&E.lines, row, new_line);
+            E.cy = row;
+            E.cx = action->col;
+            E.dirty = 1;
+            editor_update_syntax(row - 1);
+            editor_update_syntax(row);
+            return 0;
+        }
+
+    case ACTION_DELETE_RANGE:
+        /* Undo delete range: reinsert recorded text at the recorded position.
+         * Ownership of line_content stays with the action; the caller frees it
+         * after apply (editor_action_free). Characters are reinserted directly
+         * with recording disabled, so no new actions are pushed here. */
+        if (action->line_content == NULL)
+        {
+            return -1;
+        }
+        E.cy = action->row;
+        E.cx = action->col;
+        for (size_t i = 0; i < action->line_len; i++)
+        {
+            char ch = action->line_content[i];
+            if (ch == '\n')
+            {
+                editor_insert_newline();
+            }
+            else
+            {
+                editor_insert_char(ch);
+            }
+        }
+        E.dirty = 1;
+        editor_update_syntax(E.cy);
+        return 0;
+
+    default:
+        editor_set_status_message("Undo: Unknown action type.");
+        return -1;
+    }
+}
+
+static int editor_apply_redo_action(const EditorAction* action)
+{
+    switch (action->type)
+    {
+    case ACTION_INSERT_CHAR:
+        return editor_apply_insert_char(action->row, action->col, action->character);
+
+    case ACTION_DELETE_CHAR:
+        /* Re-apply backspace: cursor was at col, remove char at col-1. */
+        if (action->col <= 0)
+        {
+            return -1;
+        }
+        return editor_apply_delete_char_at(action->row, action->col - 1);
+
+    case ACTION_INSERT_NEWLINE:
+        return editor_apply_insert_newline(action->row, action->col);
+
+    case ACTION_DELETE_LINE:
+        return editor_apply_delete_line_join(action->row);
+
+    case ACTION_DELETE_RANGE:
+        /* Re-apply cut/delete-range: delete the same range again without
+         * recording (the delete happened on undo; redo re-deletes it).
+         * Reconstruct end position from the stored text: chars after the
+         * first newline belong to the next line(s). */
+        if (action->line_content == NULL)
+        {
+            return -1;
+        }
+        {
+            int end_row = action->row;
+            int end_col = action->col;
+            for (size_t i = 0; i < action->line_len; i++)
+            {
+                if (action->line_content[i] == '\n')
+                {
+                    end_row++;
+                    end_col = 0;
+                }
+                else
+                {
+                    end_col++;
+                }
+            }
+            EditorSelectionRange range = {.start_row = action->row,
+                                          .start_col = action->col,
+                                          .end_row = end_row,
+                                          .end_col = end_col};
+            E.recording_actions = false;
+            editor_delete_range(range);
+            E.recording_actions = true;
+        }
+        return 0;
+
+    default:
+        editor_set_status_message("Redo: Unknown action type.");
+        return -1;
     }
 }
 
@@ -1027,112 +1469,49 @@ void editor_undo(void)
 
     E.undo_history_idx--;
     EditorAction last_action = E.undo_history[E.undo_history_idx];
+    /* Detach from undo slot; ownership moves to local then redo clone. */
+    E.undo_history[E.undo_history_idx].line_content = NULL;
+    E.undo_history_len = E.undo_history_idx;
 
-    E.recording_actions = false; // Temporarily disable recording
+    EditorAction redo_copy = editor_action_clone(&last_action);
+    editor_history_push(E.redo_history, &E.redo_history_len, &E.redo_history_idx, redo_copy);
 
-    switch (last_action.type)
+    E.recording_actions = false;
+    if (editor_apply_undo_action(&last_action) == 0)
     {
-    case ACTION_INSERT_CHAR:
-        // Undo insert char: delete char at recorded position
-        // Need to adjust cursor to recorded position first
-        E.cy = last_action.row;
-        E.cx = last_action.col;
-        // Perform the deletion without recording it
-        EditorLine* line_to_delete_from = &E.lines.elements[E.cy];
-        memmove(&line_to_delete_from->text[E.cx], &line_to_delete_from->text[E.cx + 1],
-                line_to_delete_from->len - E.cx);
-        line_to_delete_from->len--;
-        line_to_delete_from->text =
-            realloc(line_to_delete_from->text, line_to_delete_from->len + 1);
-        E.dirty = 1;
-        editor_update_syntax(E.cy);
-        break;
-    case ACTION_DELETE_CHAR:
-        // Undo delete char: insert char at recorded position
-        // Need to adjust cursor to recorded position first
-        E.cy = last_action.row;
-        E.cx = last_action.col;
-        // Perform the insertion without recording it
-        EditorLine* line_to_insert_into = &E.lines.elements[E.cy];
-        line_to_insert_into->text =
-            realloc(line_to_insert_into->text, line_to_insert_into->len + 2);
-        memmove(&line_to_insert_into->text[E.cx + 1], &line_to_insert_into->text[E.cx],
-                line_to_insert_into->len - E.cx + 1);
-        line_to_insert_into->text[E.cx] = last_action.character;
-        line_to_insert_into->len++;
-        E.dirty = 1;
-        editor_update_syntax(E.cy);
-        break;
-    case ACTION_INSERT_NEWLINE:
-        // Undo insert newline: delete the newline at the recorded position
-        E.cy = last_action.row;
-        E.cx = last_action.col;
-        // Perform the deletion without recording it
-        if (E.cy < E.lines.size - 1)
-        { // If not the last line
-            EditorLine* current_line = &E.lines.elements[E.cy];
-            EditorLine* next_line = &E.lines.elements[E.cy + 1];
+        editor_set_status_message("Undo successful.");
+    }
+    editor_action_free(&last_action);
+    editor_refresh_screen();
+    E.recording_actions = true;
+}
 
-            current_line->text =
-                realloc(current_line->text, current_line->len + next_line->len + 1);
-            memcpy(&current_line->text[current_line->len], next_line->text, next_line->len);
-            current_line->len += next_line->len;
-            current_line->text[current_line->len] = '\0';
-
-            editor_lines_array_delete(&E.lines, E.cy + 1);
-            E.dirty = 1;
-            editor_update_syntax(E.cy);
-        }
-        break;
-    case ACTION_DELETE_LINE:
-        // Undo delete line: insert line with recorded content
-        {
-            EditorLine new_line = {.text = last_action.line_content,
-                                   .len = last_action.line_len,
-                                   .hl = NULL,
-                                   .hl_open_comment = 0};
-            editor_lines_array_insert(&E.lines, last_action.row, new_line);
-            // Transfer ownership: clear the action's line_content to avoid double-free
-            E.undo_history[E.undo_history_idx].line_content = NULL;
-            E.cy = last_action.row;
-            E.cx = last_action.col;
-            E.dirty = 1;
-            editor_update_syntax(E.cy);
-        }
-        break;
-    case ACTION_DELETE_RANGE:
-        // Undo delete range: reinsert recorded text at the recorded position
-        E.cy = last_action.row;
-        E.cx = last_action.col;
-        for (size_t i = 0; i < last_action.line_len; i++)
-        {
-            char ch = last_action.line_content[i];
-            if (ch == '\n')
-            {
-                editor_insert_newline();
-            }
-            else
-            {
-                editor_insert_char(ch);
-            }
-        }
-        // Unlike ACTION_DELETE_LINE, nothing takes ownership here: the characters were
-        // reinserted one by one, so the recorded text has to be freed. Clearing the
-        // slot keeps cleanup_editor() from freeing it a second time.
-        free(E.undo_history[E.undo_history_idx].line_content);
-        E.undo_history[E.undo_history_idx].line_content = NULL;
-        E.dirty = 1;
-        editor_update_syntax(E.cy);
-        break;
-    default:
-        editor_set_status_message("Undo: Unknown action type.");
-        break;
+void editor_redo(void)
+{
+    if (E.redo_history_idx <= 0)
+    {
+        editor_set_status_message("Nothing to redo.");
+        return;
     }
 
-    editor_set_status_message("Undo successful.");
-    editor_refresh_screen();
+    E.redo_history_idx--;
+    EditorAction action = E.redo_history[E.redo_history_idx];
+    E.redo_history[E.redo_history_idx].line_content = NULL;
+    E.redo_history_len = E.redo_history_idx;
 
-    E.recording_actions = true; // Re-enable recording
+    E.recording_actions = false;
+    if (editor_apply_redo_action(&action) == 0)
+    {
+        /* Move action onto undo stack (keeps line_content for future undos). */
+        editor_history_push(E.undo_history, &E.undo_history_len, &E.undo_history_idx, action);
+        editor_set_status_message("Redo successful.");
+    }
+    else
+    {
+        editor_action_free(&action);
+    }
+    editor_refresh_screen();
+    E.recording_actions = true;
 }
 
 void editor_find(void)
@@ -1383,6 +1762,10 @@ void editor_record_action(EditorAction action)
     {
         return;
     }
+
+    /* A new edit branch invalidates redo; free any strdup'd payloads first. */
+    editor_clear_redo_history();
+
     if (E.undo_history_idx < E.undo_history_len)
     {
         for (int i = E.undo_history_idx; i < E.undo_history_len; ++i)
@@ -1392,16 +1775,6 @@ void editor_record_action(EditorAction action)
         E.undo_history_len = E.undo_history_idx;
     }
 
-    if (E.undo_history_len == MAX_UNDO_STATES)
-    {
-        editor_action_free(&E.undo_history[0]);
-        memmove(&E.undo_history[0], &E.undo_history[1],
-                (MAX_UNDO_STATES - 1) * sizeof(EditorAction));
-        E.undo_history_len--;
-        E.undo_history_idx--;
-    }
-
-    E.undo_history[E.undo_history_idx] = action;
-    E.undo_history_len++;
-    E.undo_history_idx++;
+    /* editor_history_push frees oldest ACTION_DELETE_LINE line_content on overflow. */
+    editor_history_push(E.undo_history, &E.undo_history_len, &E.undo_history_idx, action);
 }
