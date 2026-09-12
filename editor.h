@@ -55,6 +55,10 @@ typedef struct
     int undo_history_len;
     int undo_history_idx;
 
+    EditorAction redo_history[MAX_UNDO_STATES];
+    int redo_history_len;
+    int redo_history_idx;
+
     char* search_query;
     int search_direction; // 1 for forward, -1 for backward
     int last_match_row;
@@ -78,6 +82,7 @@ void editor_insert_char(int c);
 int editor_insert_newline(void);
 void editor_del_char(void);
 void editor_undo(void);
+void editor_redo(void);
 void editor_find(void);
 void editor_find_next(int direction);
 void paste_from_clipboard(void);

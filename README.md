@@ -91,6 +91,7 @@ no filename is provided, ErwinText will start with an empty buffer.
 | `Ctrl+C`          | Copy Selection          |
 | `Ctrl+V`          | Paste from Clipboard    |
 | `Ctrl+Z`          | Undo                    |
+| `Ctrl+Y`          | Redo                    |
 | Arrow Keys        | Move Cursor             |
 | `Shift` + `Arrows` / `Home` / `End` / `PgUp` / `PgDn` | Select Text |
 | `Home` / `End`      | Go to Start/End of Line |
