@@ -88,7 +88,8 @@ no filename is provided, ErwinText will start with an empty buffer.
 | `Ctrl+S`          | Save File               |
 | `Ctrl+F`          | Find (Search)           |
 | `Ctrl+A`          | Select All              |
-| `Ctrl+C`          | Copy Selection          |
+| `Ctrl+C`          | Copy Selection (or Current Line) |
+| `Ctrl+X`          | Cut Selection (or Current Line)  |
 | `Ctrl+V`          | Paste from Clipboard    |
 | `Ctrl+Z`          | Undo                    |
 | `Ctrl+Y`          | Redo                    |

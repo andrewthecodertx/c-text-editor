@@ -77,6 +77,7 @@ void editor_move_cursor(int key);
 EditorSelectionRange editor_resolve_selection(void);
 int editor_get_selection_range(EditorSelectionRange* out);
 char* editor_get_selected_text(EditorSelectionRange range);
+void editor_delete_range(EditorSelectionRange range);
 void editor_process_keypress(void);
 void editor_insert_char(int c);
 int editor_insert_newline(void);

@@ -10,6 +10,7 @@ typedef enum
     ACTION_DELETE_CHAR,
     ACTION_INSERT_NEWLINE,
     ACTION_DELETE_LINE,
+    ACTION_DELETE_RANGE,
     // Add more action types as needed
 } EditorActionType;
 
@@ -20,8 +21,9 @@ typedef struct
     int row;
     int col;
     char character;     // For insert/delete char
-    char* line_content; // For delete line (stores content of deleted line)
-    size_t line_len;    // For delete line (stores length of deleted line)
+    char* line_content; // For delete line/range (stores content of deleted text;
+                        // for ACTION_DELETE_RANGE, '\n' marks line breaks within the range)
+    size_t line_len;    // For delete line/range (stores length of deleted text)
 } EditorAction;
 
 void editor_action_free(EditorAction* action);
